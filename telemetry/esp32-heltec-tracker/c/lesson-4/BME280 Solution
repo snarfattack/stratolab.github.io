@@ -1,0 +1,106 @@
+#include "Arduino.h"
+#include "HT_TinyGPS++.h"
+#include <Adafruit_BME280.h>
+#include <Wire.h>
+#include "HT_st7735.h"
+
+#define GPS_ON 3                // the "power" pin for the GPS unit
+#define GPS_TX 33               // the GPS transmit pin
+#define GPS_RX 34               // the GPS receive pin
+#define GPS_BAUD 115200         // the pulse speed in bits per second
+
+#define SDA 46          // set the correct pins for I2C 
+#define SCL 45
+#define SEALEVELPRESSURE_HPA (1013.25)
+
+TinyGPSPlus gps;                // create a GPS object to refer to in our code
+Adafruit_BME280 bme; // I2C
+HT_st7735 screen;
+
+void setup(){
+  screen.st7735_init();
+
+  pinMode(GPS_ON,OUTPUT);     // configure power pin
+  digitalWrite(GPS_ON,HIGH);  // turn on GPS module
+  Serial1.begin(GPS_BAUD,SERIAL_8N1,GPS_TX,GPS_RX);  // configure serial connection to GPS  
+  delay(1000);                // pause for initialization
+
+  Serial.begin(115200);  
+  Serial.println("GPS test beginning...");  
+
+  unsigned status;
+
+  // default settings
+  Wire.begin(SDA, SCL);
+  //scan();
+  status = bme.begin(0x76);
+
+  if (!status) {
+    Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
+    Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(),16);
+    Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
+    Serial.print("   ID of 0x56-0x58 represents a BMP 280,\n");
+    Serial.print("        ID of 0x60 represents a BME 280.\n");
+    Serial.print("        ID of 0x61 represents a BME 680.\n");
+    while (1) delay(10);
+  }
+
+  Serial.println("-- Default BME Test --");
+}
+
+void loop(){
+  while(Serial1.available()){
+    gps.encode(Serial1.read());  // process one character at a time
+  }
+  // add code to output gps data here
+  Serial.printf("Tracking %d satellites\n",gps.satellites.value());
+  Serial.printf("Time: %02d:%02d:%02d\n",gps.time.hour(),gps.time.minute(),gps.time.second());
+  Serial.printf("Latitude %f deg\n",gps.location.lat());
+  Serial.printf("Longtitude %f deg\n",gps.location.lng());
+  Serial.printf("Altitude %f ft\n",gps.altitude.feet());
+  
+  printValues();
+  
+  delay(1000);                   // pause 1s between readings  
+}
+
+void printValues() {
+  double tempC = bme.readTemperature();
+  Serial.print("Temperature = ");
+  Serial.print(tempC);
+  Serial.println(" °C");
+
+  int press = bme.readPressure();
+  Serial.print("Pressure = ");
+  Serial.print(press);
+  Serial.println(" Pa");
+
+  Serial.print("Approx. Altitude = ");
+  Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
+  Serial.println(" m");
+
+  Serial.print("Humidity = ");
+  Serial.print(bme.readHumidity());
+  Serial.println(" %");
+
+  Serial.println();
+
+  screen.st7735_fill_screen(ST7735_BLACK);
+  String tempInfo = (String)tempC + " *C";
+  screen.st7735_write_str(0, 0, tempInfo);
+}
+
+void scan(){
+  Serial.println("Scanning all I2C addresses...");
+  for(int address = 1; address < 127; address++ ){
+      // try to communicate to this address
+  Wire.beginTransmission(address);
+      byte error = Wire.endTransmission();
+  // a reply of 0 indicates a successful connection
+      if (error == 0)	{
+          Serial.print("I2C device found at address 0x");
+          Serial.println(address,HEX);
+      }
+  }
+  Serial.println("done");
+}
