@@ -57,7 +57,7 @@ For each experiment, record the RSSI and SNR. What situation makes the worst sig
 ## Programming
 Unlike previous lessons, this lesson will not walk through the code step-by-step. Instead, consider it your challenge to figure out the key lines in the code below. Notice that many of the lines have to do with displaying information on the screen. To figure out the radio code, look for the lines with the term ```lora.``` in them.
 
-If you compile this code yourself, you will need to install the RadioLab library by Jan Gromes into the Arduino IDE.
+If you compile this code yourself, you will need to install the RadioLib library by Jan Gromes into the Arduino IDE.
 
 ### Receiver Code
 ```
