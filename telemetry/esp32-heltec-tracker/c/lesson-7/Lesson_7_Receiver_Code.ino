@@ -1,26 +1,49 @@
 #include "HT_st7735.h"
 #include <RadioLib.h>
 
+// Heltec Tracker v1.1/1.2 LoRa Pins
 #define LORA_NSS  8
 #define LORA_DIO1 14
 #define LORA_NRST 12
 #define LORA_BUSY 13
+#define VEXT_CTRL 3  // GPIO 3 powers LoRa and Screen on Tracker v1.2
 
 HT_st7735 screen;
-
-// initalize lora radio and make an interrupt function for when packets arrive
 SX1262 lora = new Module(LORA_NSS, LORA_DIO1, LORA_NRST, LORA_BUSY);
+
 volatile bool packetAvailable = false;
-ICACHE_RAM_ATTR             // puts onReceive in RAM for better memory access
+
+// Interrupt function
 void onReceive(void) {
   packetAvailable = true;
 }
 
 void setup() {
-  Serial.begin(115000);
+  Serial.begin(115200);
+
+  // 1. Power on the onboard LoRa and Screen
+  pinMode(VEXT_CTRL, OUTPUT);
+  digitalWrite(VEXT_CTRL, LOW); 
+  delay(100);
+
+  // 2. Initialize Screen
   screen.st7735_init();
   screen.st7735_fill_screen(ST7735_BLACK);
-  loraInit();
+  screen.st7735_write_str(0, 0, "BALLOON RECV", Font_7x10, ST7735_YELLOW, ST7735_BLACK);
+  
+  // 3. Initialize LoRa 
+  // MUST MATCH TRANSMITTER EXACTLY:
+  // freq: 915.0, bw: 125.0, sf: 7, cr: 5, sync: 0x12, pwr: 10, preamble: 8, tcxo: 1.6V, LDO: false (DC-DC)
+  int status = lora.begin(915.0, 125.0, 7, 5, 0x12, 10, 8, 1.6, false); 
+
+  if (status == RADIOLIB_ERR_NONE) {
+    screen.st7735_write_str(0, 15, "LORA: OK (915MHz)", Font_7x10, ST7735_GREEN, ST7735_BLACK);
+    lora.setPacketReceivedAction(onReceive);
+    lora.startReceive(); 
+  } else {
+    screen.st7735_write_str(0, 15, "LORA: FAIL", Font_7x10, ST7735_RED, ST7735_BLACK);
+    screen.st7735_write_str(0, 25, "ERR: " + String(status), Font_7x10, ST7735_WHITE, ST7735_BLACK);
+  }
 }
 
 void loop() { 
@@ -28,50 +51,27 @@ void loop() {
     readPacket();
   } 
 }
-  
-int loraInit(){
-  screen.st7735_write_str(0, 0, "LORA init...", Font_7x10, ST7735_WHITE, ST7735_BLACK);
-  int status1 = lora.begin();                    
-  lora.setPacketReceivedAction(onReceive);      // tells lora to call the interrupt function when a packet arrives
-  int status2 = lora.startReceive();
-
-  if (status1 == RADIOLIB_ERR_NONE && status2 == RADIOLIB_ERR_NONE) {
-    screen.st7735_write_str(90, 0, "OK", Font_7x10, ST7735_GREEN, ST7735_BLACK);
-  } else {
-    screen.st7735_write_str(90, 0, "ERR", Font_7x10, ST7735_RED, ST7735_BLACK);
-    screen.st7735_write_str(120, 0,  (String)status1, Font_7x10, ST7735_WHITE, ST7735_BLACK);
-    screen.st7735_write_str(140, 0,  (String)status2, Font_7x10, ST7735_WHITE, ST7735_BLACK);
-  }
-  return status1 + status2;                       // can be used for status checking: will be 0 if no errors
-}
 
 void readPacket() {
     String data;
-    int status = lora.readData(data);             // data is stored into "data" and status is stored is "status"
+    int status = lora.readData(data);
+    
     if (status == RADIOLIB_ERR_NONE) {
-        screen.st7735_write_str(0, 12, "Data: ", Font_7x10, ST7735_WHITE, ST7735_BLACK);
-        screen.st7735_write_str(64, 12, data, Font_7x10, ST7735_WHITE, ST7735_BLACK);
+        // Clear a portion of the screen for new data
+        screen.st7735_fill_screen(ST7735_BLACK);
+        screen.st7735_write_str(0, 0, "RECV SUCCESS:", Font_7x10, ST7735_YELLOW, ST7735_BLACK);
+        
+        // Display the payload (Time, Lat, Lon, Alt, Sats)
+        screen.st7735_write_str(0, 20, data, Font_7x10, ST7735_WHITE, ST7735_BLACK);
 
-        String rssi = (String)lora.getRSSI();
-        screen.st7735_write_str(0, 24, "RSSI:          dBm", Font_7x10, ST7735_WHITE, ST7735_BLACK);
-        screen.st7735_write_str(64, 24, rssi, Font_7x10, ST7735_WHITE, ST7735_BLACK);
+        // Signal Quality Stats
+        String stats = "R:" + String(lora.getRSSI()) + " S:" + String(lora.getSNR());
+        screen.st7735_write_str(0, 110, stats, Font_7x10, ST7735_CYAN, ST7735_BLACK);
 
-        String snr = (String)lora.getSNR();
-        screen.st7735_write_str(0, 36, "SNR:           dB", Font_7x10, ST7735_WHITE, ST7735_BLACK);
-        screen.st7735_write_str(64, 36, snr, Font_7x10, ST7735_WHITE, ST7735_BLACK);
-
-        String freqErr = (String)lora.getFrequencyError();
-        screen.st7735_write_str(0, 48, "Freq Err:       Hz", Font_7x10, ST7735_WHITE, ST7735_BLACK);
-        screen.st7735_write_str(64, 48, freqErr, Font_7x10, ST7735_WHITE, ST7735_BLACK);
-
-    } else if (status == RADIOLIB_ERR_CRC_MISMATCH) {
-        screen.st7735_write_str(0, 12, "CRC Error", Font_7x10, ST7735_RED, ST7735_BLACK);
-        screen.st7735_write_str(0, 24, "Malformed Packet", Font_7x10, ST7735_WHITE, ST7735_BLACK);
     } else {
-        String err = (String)status;
-        screen.st7735_write_str(0, 12, "Rx Error:", Font_7x10, ST7735_RED, ST7735_BLACK);
-        screen.st7735_write_str(80, 12, err, Font_7x10, ST7735_WHITE, ST7735_BLACK);
+        screen.st7735_write_str(0, 50, "RX Error: " + String(status), Font_7x10, ST7735_RED, ST7735_BLACK);
     }
-    packetAvailable = false;   // reset flag
-}
 
+    packetAvailable = false;
+    lora.startReceive(); // Re-enable receive mode
+}
